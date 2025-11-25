@@ -3,87 +3,86 @@ import pandas as pd
 import pandas_ta as ta
 import json
 import datetime
+import time
 
-# 範例：我們要分析的股票清單 (你可以擴充成台灣50或是全部上市櫃)
-# 格式：股票代號.TW (上市) 或 .TWO (上櫃)
-stock_list = ['2330.TW', '2317.TW', '2454.TW', '0050.TW', '2603.TW'] 
-
+# 設定股票清單
+stock_list = ['2330.TW', '2317.TW', '2454.TW', '0050.TW', '2603.TW', '3653.TW']
 results = {}
 
 def check_pattern(df):
-    """
-    這裡定義你的技術分析邏輯
-    回傳：符合的型態名稱清單
-    """
     patterns = []
     
-    # 1. 取得最近兩筆資料
-    if len(df) < 5: return ["資料不足"]
-    today = df.iloc[-1]
-    yesterday = df.iloc[-2]
+    if len(df) < 20: return ["資料不足"] # 資料太少不分析
     
-    # --- 範例指標 1: 均線多頭排列 (SMA 5 > SMA 20) ---
-    # 使用 pandas_ta 計算
+    # 1. 計算均線
     df['SMA_5'] = ta.sma(df['Close'], length=5)
     df['SMA_20'] = ta.sma(df['Close'], length=20)
     
+    # 取得最新一筆資料
     current_sma5 = df['SMA_5'].iloc[-1]
     current_sma20 = df['SMA_20'].iloc[-1]
+    close_price = df['Close'].iloc[-1]
     
+    # --- 判斷 1: 均線 ---
     if current_sma5 > current_sma20:
-        patterns.append("均線多頭 (5日 > 20日)")
+        patterns.append("均線多頭 (5>20)")
+    else:
+        patterns.append("均線空頭 (5<20)")
         
-    # --- 範例指標 2: KD 黃金交叉 ---
-    # K < 20 且 K 向上突破 D
-    k_period = 9
-    d_period = 3
-    df.ta.stoch(k=k_period, d=d_period, append=True)
-    # 欄位名稱通常是 STOCHk_9_3_3 和 STOCHd_9_3_3
-    k_col = f'STOCHk_{k_period}_{d_period}_3'
-    d_col = f'STOCHd_{k_period}_{d_period}_3'
+    # --- 判斷 2: KD 指標 ---
+    # 使用 pandas_ta 計算 KD
+    stoch = df.ta.stoch(k=9, d=3, append=True)
+    # 欄位名稱動態抓取 (避免名稱不同)
+    k_col = [c for c in df.columns if c.startswith('STOCHk')][0]
+    d_col = [c for c in df.columns if c.startswith('STOCHd')][0]
     
-    if (df[k_col].iloc[-2] < df[d_col].iloc[-2]) and \
-       (df[k_col].iloc[-1] > df[d_col].iloc[-1]) and \
-       (df[k_col].iloc[-1] < 80): # 這裡簡單示範
-        patterns.append("KD黃金交叉")
+    k_val = df[k_col].iloc[-1]
+    d_val = df[d_col].iloc[-1]
+    prev_k = df[k_col].iloc[-2]
+    prev_d = df[d_col].iloc[-2]
 
-    # --- 範例指標 3: 紅三兵 (連續三天收紅) ---
-    if (df['Close'].iloc[-1] > df['Open'].iloc[-1]) and \
-       (df['Close'].iloc[-2] > df['Open'].iloc[-2]) and \
-       (df['Close'].iloc[-3] > df['Open'].iloc[-3]):
-        patterns.append("紅三兵 K線型態")
+    if prev_k < prev_d and k_val > d_val:
+        patterns.append("KD黃金交叉 ↗")
+    elif prev_k > prev_d and k_val < d_val:
+        patterns.append("KD死亡交叉 ↘")
 
-    if not patterns:
-        patterns.append("盤整/無特殊型態")
-        
     return patterns
 
-print("開始分析股票...")
+print("=== 開始分析股票 (防擋機制啟動) ===")
 
 for symbol in stock_list:
     try:
-        # 下載資料 (日K)
-        df = yf.download(symbol, period="6mo", interval="1d", progress=False)
+        print(f"正在下載: {symbol} ...")
         
-        if not df.empty:
-            patterns = check_pattern(df)
-            # 移除 .TW 以便搜尋
-            clean_code = symbol.replace('.TW', '').replace('.TWO', '')
-            
-            # 取得最後收盤價
-            last_price = round(float(df['Close'].iloc[-1]), 2)
-            
-            results[clean_code] = {
-                "price": last_price,
-                "patterns": patterns,
-                "date": str(datetime.date.today())
-            }
-            print(f"{clean_code} 分析完成: {patterns}")
-            
-    except Exception as e:
-        print(f"Error analyzing {symbol}: {e}")
+        # 使用 Ticker 物件抓取，通常比直接 download 穩定
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="6mo")
+        
+        if df.empty:
+            print(f"⚠️ {symbol} 下載失敗 (資料為空)")
+            continue
 
-# 儲存結果到 JSON 檔案
+        # 簡單資料處理
+        patterns = check_pattern(df)
+        clean_code = symbol.replace('.TW', '').replace('.TWO', '')
+        last_price = round(float(df['Close'].iloc[-1]), 2)
+        
+        results[clean_code] = {
+            "price": last_price,
+            "patterns": patterns,
+            "date": str(datetime.date.today())
+        }
+        print(f"✅ {clean_code} 分析成功: {last_price} {patterns}")
+        
+        # 暫停 2 秒，避免請求太快被 Yahoo 封鎖
+        time.sleep(2)
+
+    except Exception as e:
+        print(f"❌ Error analyzing {symbol}: {e}")
+
+# 確保就算沒資料也要存一個空檔或舊檔，避免網頁壞掉
+print(f"總共完成 {len(results)} 檔股票分析")
+
 with open('stock_data.json', 'w', encoding='utf-8') as f:
     json.dump(results, f, ensure_ascii=False, indent=4)
 
