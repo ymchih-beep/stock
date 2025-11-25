@@ -7,9 +7,30 @@ import time
 import requests
 from io import StringIO
 
-# --- 設定 ---
-stock_list = ['2330.TW', '2317.TW', '2454.TW', '0050.TW', '2603.TW', '3653.TW']
+# --- 設定：動態讀取股票清單 ---
 results = {}
+stock_list = []
+
+try:
+    with open('stocks.txt', 'r', encoding='utf-8') as f:
+        # 讀取每一行，並移除空白和換行符號
+        codes = [line.strip() for line in f if line.strip()]
+        
+        # 將股票代號轉換為 yfinance 格式 (例如: 2330 -> 2330.TW)
+        for code in codes:
+            # 簡單判斷是否為數字代號，並加上 .TW
+            if code.isdigit() and len(code) == 4:
+                stock_list.append(f"{code}.TW")
+            else:
+                print(f"警告：代號 {code} 格式錯誤，跳過。")
+
+except FileNotFoundError:
+    print("錯誤：找不到 stocks.txt 檔案！請先建立該檔案。")
+    # 如果找不到檔案，設置一個預設值，避免程式崩潰
+    stock_list = ['2330.TW'] 
+
+print(f"成功讀取 {len(stock_list)} 檔股票清單。")
+# ... (程式碼的其餘部分維持不變，繼續使用 stock_list 進行分析)
 
 # 取得股票名稱的快取 (避免重複查詢 TWSE)
 STOCK_NAMES = {}
@@ -155,3 +176,4 @@ with open('stock_data.json', 'w', encoding='utf-8') as f:
     json.dump(results, f, ensure_ascii=False, indent=4)
 
 print("資料儲存完成。")
+
