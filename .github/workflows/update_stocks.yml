@@ -21,9 +21,9 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Install dependencies
+      - name: Install dependencies
       run: |
-        pip install yfinance pandas pandas_ta
+        pip install yfinance pandas pandas_ta requests  # <-- 這裡新增 requests
 
     - name: Run analysis script
       # 注意：這裡假設 analyze.py 在最外層。如果你的檔案還在資料夾裡，這裡會報錯
