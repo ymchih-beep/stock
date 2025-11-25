@@ -33,12 +33,9 @@ print(f"成功讀取 {len(stock_list)} 檔股票清單。")
 # ... (程式碼的其餘部分維持不變，繼續使用 stock_list 進行分析)
 
 # 取得股票名稱的快取 (避免重複查詢 TWSE)
-STOCK_NAMES = {}
 
-def get_stock_name(stock_code):
-    """從公開資訊觀測站抓取股票名稱 (此處使用簡易爬蟲)"""
-    if stock_code in STOCK_NAMES:
-        return STOCK_NAMES[stock_code]
+
+
     
     # 這裡抓 TWSE 的 JSON 檔案
     # 注意：這個 URL 的結構可能會變動
@@ -49,7 +46,7 @@ def get_stock_name(stock_code):
         if 'title' in data:
             # title 格式通常是 "110年11月 2330 台積電"
             name = data['title'].split(' ')[-1]
-            STOCK_NAMES[stock_code] = name
+        
             return name
     except Exception as e:
         # print(f"無法取得名稱: {e}")
@@ -134,30 +131,45 @@ investor_data = get_major_investor_data(datetime.date.today())
 print(f"三大法人資料已取得 {len(investor_data)} 筆。")
 
 
+# ... (get_major_investor_data 函式結束後) ...
+
+# --- 主要執行區塊 ---
+print("=== 開始分析股票與抓取輔助數據 ===")
+
+# 1. 抓取三大法人資料 (保持不變)
+investor_data = get_major_investor_data(datetime.date.today())
+print(f"三大法人資料已取得 {len(investor_data)} 筆。")
+
+
 for symbol_dot_tw in stock_list:
     clean_code = symbol_dot_tw.replace('.TW', '').replace('.TWO', '')
     
     try:
-        # 抓取名稱
-        name = get_stock_name(clean_code)
-        
-        # 2. 抓取股價資料
+        # 1. 創建 Ticker 物件
         ticker = yf.Ticker(symbol_dot_tw)
+        
+        # 2. 【✨ 新增/修改點】抓取名稱 (從 info 屬性獲取 longName，最可靠)
+        #    如果 yfinance 找不到名稱，預設回傳 'N/A'
+        name = ticker.info.get('longName', 'N/A')
+        
+        # 3. 抓取股價資料
         df = ticker.history(period="6mo")
         
         if df.empty:
             print(f"⚠️ {clean_code} 下載失敗 (資料為空)")
+            # 即使失敗，也確保 name 是 'N/A'
+            name = 'N/A' 
             continue
 
-        # 3. 執行分析
+        # 4. 執行分析
         analysis_result = check_pattern(df)
         last_price = round(float(df['Close'].iloc[-1]), 2)
         
-        # 4. 取得三大法人淨額
+        # 5. 取得三大法人淨額
         investor_net = investor_data.get(clean_code, "N/A")
 
         results[clean_code] = {
-            "name": name,
+            "name": name,  # <--- 確保這裡的 name 是正確的
             "price": last_price,
             "patterns": analysis_result["patterns"],
             "ma_status": analysis_result["ma_status"],
@@ -171,9 +183,11 @@ for symbol_dot_tw in stock_list:
     except Exception as e:
         print(f"❌ Error analyzing {symbol_dot_tw}: {e}")
 
+# ... (檔案儲存部分維持不變) ...
 # 儲存結果到 JSON 檔案
 with open('stock_data.json', 'w', encoding='utf-8') as f:
     json.dump(results, f, ensure_ascii=False, indent=4)
 
 print("資料儲存完成。")
+
 
